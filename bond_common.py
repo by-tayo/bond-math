@@ -359,3 +359,53 @@ def classify_curve(curve: pd.Series, flat_band: float = 0.0025) -> str:
     if spread < -flat_band:
         return "inverted"
     return "flat"
+
+
+# ---------------------------------------------------------------------------
+# Applications (pure functions, unit-tested)
+# ---------------------------------------------------------------------------
+
+def interpolate_curve(curve: pd.Series, years: float) -> float:
+    """Linearly interpolate a maturity(years) -> yield curve (as returned
+    by `curve_on_date`) at an arbitrary maturity, e.g. the 4-year point on
+    a curve that only has 2y and 5y observations. Flat-extrapolates past
+    either end rather than raising, since a ladder rung a bit past the
+    longest cached maturity shouldn't crash the script.
+    """
+    import numpy as np
+
+    curve = curve.sort_index()
+    return float(np.interp(years, curve.index.to_numpy(), curve.to_numpy()))
+
+
+def future_value_with_fees(
+    starting_amount: float,
+    annual_contribution: float,
+    gross_return: float,
+    expense_ratio: float,
+    years: int,
+) -> float:
+    """Ending account value after `years` of annual compounding, with a
+    contribution added at the end of each year, net of an ongoing expense
+    ratio drag (expense_ratio is subtracted from the gross return every
+    year, the way a fund's expense ratio is deducted continuously from NAV).
+    """
+    net_return = gross_return - expense_ratio
+    value = starting_amount
+    for _ in range(years):
+        value = value * (1 + net_return) + annual_contribution
+    return value
+
+
+def call_breakeven_years(price_paid: float, call_price: float, extra_annual_coupon: float) -> float | None:
+    """How many years of extra coupon income (vs. a comparable non-callable
+    bond bought at par) it takes to recoup the premium paid, if the bond is
+    called away at `call_price`. Returns None if there's no premium to
+    recoup (already breakeven) or the extra coupon can never recoup it.
+    """
+    premium_at_risk = price_paid - call_price
+    if premium_at_risk <= 0:
+        return None  # nothing to break even on — the call can't cost you money
+    if extra_annual_coupon <= 0:
+        return None  # extra income never recoups the premium
+    return premium_at_risk / extra_annual_coupon

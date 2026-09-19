@@ -2,8 +2,11 @@ from datetime import date
 
 import pytest
 
+import pandas as pd
+
 from bond_common import (
     accrued_interest,
+    call_breakeven_years,
     classify_curve,
     clean_price,
     convexity,
@@ -12,6 +15,8 @@ from bond_common import (
     dirty_price,
     discount_factor,
     estimate_price_change_pct,
+    future_value_with_fees,
+    interpolate_curve,
     macaulay_duration,
     modified_duration,
     price_from_yield,
@@ -209,8 +214,6 @@ def test_accrued_interest_zero_at_settlement_on_coupon_date():
 # ---------------------------------------------------------------------------
 
 def test_classify_curve_normal():
-    import pandas as pd
-
     curve = pd.Series({1 / 12: 0.05, 3 / 12: 0.052, 2: 0.045, 10: 0.043, 30: 0.045})
     # bump 10y above 3mo to make it clearly normal
     curve[10] = 0.06
@@ -218,22 +221,68 @@ def test_classify_curve_normal():
 
 
 def test_classify_curve_inverted():
-    import pandas as pd
-
     curve = pd.Series({3 / 12: 0.055, 10: 0.04})
     assert classify_curve(curve) == "inverted"
 
 
 def test_classify_curve_flat():
-    import pandas as pd
-
     curve = pd.Series({3 / 12: 0.05, 10: 0.052})
     assert classify_curve(curve) == "flat"
 
 
 def test_classify_curve_requires_3mo_and_10y_points():
-    import pandas as pd
-
     curve = pd.Series({1: 0.05, 5: 0.05})
     with pytest.raises(ValueError):
         classify_curve(curve)
+
+
+# ---------------------------------------------------------------------------
+# interpolate_curve
+# ---------------------------------------------------------------------------
+
+def test_interpolate_curve_midpoint():
+    curve = pd.Series({2: 0.04, 4: 0.05})
+    assert interpolate_curve(curve, 3) == pytest.approx(0.045)
+
+
+def test_interpolate_curve_flat_extrapolates_past_ends():
+    curve = pd.Series({2: 0.04, 10: 0.05})
+    assert interpolate_curve(curve, 30) == pytest.approx(0.05)
+    assert interpolate_curve(curve, 0.5) == pytest.approx(0.04)
+
+
+# ---------------------------------------------------------------------------
+# future_value_with_fees
+# ---------------------------------------------------------------------------
+
+def test_future_value_zero_years_returns_starting_amount():
+    assert future_value_with_fees(1000, 100, 0.07, 0.01, years=0) == 1000
+
+
+def test_future_value_higher_fee_always_lower_ending_value():
+    low = future_value_with_fees(10_000, 6_000, 0.07, 0.0003, years=30)
+    high = future_value_with_fees(10_000, 6_000, 0.07, 0.0075, years=30)
+    assert high < low
+
+
+def test_future_value_matches_hand_computed_two_years():
+    # year 1: 1000*1.05 + 100 = 1150; year 2: 1150*1.05 + 100 = 1307.5
+    fv = future_value_with_fees(1000, 100, gross_return=0.06, expense_ratio=0.01, years=2)
+    assert fv == pytest.approx(1307.5)
+
+
+# ---------------------------------------------------------------------------
+# call_breakeven_years
+# ---------------------------------------------------------------------------
+
+def test_call_breakeven_divides_premium_by_extra_income():
+    years = call_breakeven_years(price_paid=1080, call_price=1020, extra_annual_coupon=15)
+    assert years == pytest.approx(4.0)
+
+
+def test_call_breakeven_none_when_no_premium_at_risk():
+    assert call_breakeven_years(price_paid=1000, call_price=1020, extra_annual_coupon=15) is None
+
+
+def test_call_breakeven_none_when_extra_income_nonpositive():
+    assert call_breakeven_years(price_paid=1080, call_price=1020, extra_annual_coupon=0) is None
