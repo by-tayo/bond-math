@@ -10,9 +10,11 @@ Conventions used throughout unless a function says otherwise:
 - `freq` is coupon/compounding periods per year (2 = semiannual, the US
   convention, and the default everywhere).
 - `years_to_maturity` must land on a whole number of periods
-  (years_to_maturity * freq); these are idealized valuation-on-a-coupon-date
-  formulas. Settlement between coupon dates is handled separately by
-  `accrued_interest` / `clean_price` / `dirty_price`.
+  (years_to_maturity * freq) for `price_from_yield` / `macaulay_duration` /
+  `convexity` — they raise rather than silently round if it doesn't, since
+  these are idealized valuation-on-a-coupon-date formulas. For a real
+  settlement date between coupons, use `price_from_yield_settlement` (dirty
+  price) with `accrued_interest` / `clean_price` / `dirty_price`.
 """
 from __future__ import annotations
 
@@ -37,6 +39,22 @@ def discount_factor(yld: float, freq: int, n_periods: float) -> float:
     return 1.0 / (1.0 + yld / freq) ** n_periods
 
 
+def _period_count(years_to_maturity: float, freq: int, tol: float = 1e-6) -> int:
+    """years_to_maturity * freq as an integer number of coupon periods,
+    raising rather than silently rounding — a bond that isn't actually
+    priced on a coupon date needs `price_from_yield_settlement`, not this.
+    """
+    raw = years_to_maturity * freq
+    n = round(raw)
+    if abs(raw - n) > tol:
+        raise ValueError(
+            f"years_to_maturity={years_to_maturity} at freq={freq} isn't a whole number of periods "
+            f"({raw:g} periods). Pass a years_to_maturity that lands on a coupon date, or use "
+            "price_from_yield_settlement for a mid-period settlement date."
+        )
+    return n
+
+
 def price_from_yield(
     face: float,
     coupon_rate: float,
@@ -45,14 +63,16 @@ def price_from_yield(
     freq: int = DEFAULT_FREQ,
     redemption: float | None = None,
 ) -> float:
-    """PV of the coupon stream plus a redemption payment at maturity.
+    """PV of the coupon stream plus a redemption payment at maturity,
+    valued exactly on a coupon date (see `price_from_yield_settlement` for
+    a settlement date between coupons).
 
     `redemption` defaults to `face`; pass a call price to price a bond to a
     call date instead of maturity (yield-to-call uses this).
     """
     if redemption is None:
         redemption = face
-    n = round(years_to_maturity * freq)
+    n = _period_count(years_to_maturity, freq)
     coupon = face * coupon_rate / freq
     price = 0.0
     for k in range(1, n + 1):
@@ -61,11 +81,48 @@ def price_from_yield(
     return price
 
 
+def price_from_yield_settlement(
+    face: float,
+    coupon_rate: float,
+    yld: float,
+    freq: int,
+    n_remaining: int,
+    period_remaining_fraction: float,
+    redemption: float | None = None,
+) -> float:
+    """Dirty price when settlement falls between coupon dates (the normal
+    case for an actual purchase). `n_remaining` is the number of coupons
+    still to be paid, including the next one. `period_remaining_fraction`
+    (called `w` in most textbooks) is the fraction of the *current* coupon
+    period still left until that next coupon: 1.0 means settlement is
+    right after a coupon date (this reduces to `price_from_yield`), values
+    close to 0 mean settlement is right before the next coupon.
+
+    Get `period_remaining_fraction` from real dates with
+    `1 - day_count_fraction(prev_coupon, settlement, next_coupon)`. This is
+    the standard "street convention" quasi-coupon method — see
+    docs/methodology.md for what it does and doesn't handle.
+    """
+    if not (0 < period_remaining_fraction <= 1):
+        raise ValueError("period_remaining_fraction must be in (0, 1]")
+    if redemption is None:
+        redemption = face
+    coupon = face * coupon_rate / freq
+    w = period_remaining_fraction
+    price = 0.0
+    for t in range(1, n_remaining + 1):
+        cash_flow = coupon + (redemption if t == n_remaining else 0.0)
+        price += cash_flow / (1 + yld / freq) ** (t - 1 + w)
+    return price
+
+
 def current_yield(face: float, coupon_rate: float, price: float) -> float:
     """Annual coupon / price. Differs from YTM because it ignores the
     capital gain or loss between price and redemption value, and ignores
     the time value of the coupons still to come.
     """
+    if price <= 0:
+        raise ValueError("price must be positive")
     return (face * coupon_rate) / price
 
 
@@ -128,6 +185,28 @@ def yield_to_call(
     return solve_yield(price, face, coupon_rate, years_to_call, freq, redemption=call_price)
 
 
+def yield_to_worst(
+    price: float,
+    face: float,
+    coupon_rate: float,
+    years_to_maturity: float,
+    call_schedule: list[tuple[float, float]],
+    freq: int = DEFAULT_FREQ,
+) -> dict:
+    """The lowest yield across YTM and every YTC in `call_schedule` (each a
+    (years_to_call, call_price) pair) — the number actually quoted for a
+    callable bond, since it's the worst case a holder should plan around.
+    Returns {"yield": ..., "scenario": ...} so the caller can see which
+    call date (if any) drives the number.
+    """
+    candidates = [("maturity", yield_to_maturity(price, face, coupon_rate, years_to_maturity, freq))]
+    for years_to_call, call_price in call_schedule:
+        y = yield_to_call(price, face, coupon_rate, years_to_call, call_price, freq)
+        candidates.append((f"call in {years_to_call}y @ {call_price}", y))
+    scenario, worst_yield = min(candidates, key=lambda c: c[1])
+    return {"yield": worst_yield, "scenario": scenario}
+
+
 # ---------------------------------------------------------------------------
 # Duration and convexity
 # ---------------------------------------------------------------------------
@@ -145,7 +224,7 @@ def macaulay_duration(
     """
     if redemption is None:
         redemption = face
-    n = round(years_to_maturity * freq)
+    n = _period_count(years_to_maturity, freq)
     coupon = face * coupon_rate / freq
     price = price_from_yield(face, coupon_rate, yld, years_to_maturity, freq, redemption)
     weighted_time = 0.0
@@ -177,7 +256,7 @@ def convexity(
     """
     if redemption is None:
         redemption = face
-    n = round(years_to_maturity * freq)
+    n = _period_count(years_to_maturity, freq)
     coupon = face * coupon_rate / freq
     price = price_from_yield(face, coupon_rate, yld, years_to_maturity, freq, redemption)
     total = 0.0
@@ -228,6 +307,15 @@ def day_count_fraction(
     if denominator == 0:
         raise ValueError("prev_coupon and next_coupon must differ")
     return numerator / denominator
+
+
+def period_remaining_fraction(
+    prev_coupon: date, settlement: date, next_coupon: date, convention: str = "actual/actual"
+) -> float:
+    """1 - day_count_fraction: the `period_remaining_fraction` ("w")
+    argument `price_from_yield_settlement` needs, computed from real dates.
+    """
+    return 1 - day_count_fraction(prev_coupon, settlement, next_coupon, convention)
 
 
 def accrued_interest(

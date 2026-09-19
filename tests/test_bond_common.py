@@ -19,10 +19,13 @@ from bond_common import (
     interpolate_curve,
     macaulay_duration,
     modified_duration,
+    period_remaining_fraction,
     price_from_yield,
+    price_from_yield_settlement,
     solve_yield,
     yield_to_call,
     yield_to_maturity,
+    yield_to_worst,
 )
 
 
@@ -286,3 +289,138 @@ def test_call_breakeven_none_when_no_premium_at_risk():
 
 def test_call_breakeven_none_when_extra_income_nonpositive():
     assert call_breakeven_years(price_paid=1080, call_price=1020, extra_annual_coupon=0) is None
+
+
+# ---------------------------------------------------------------------------
+# guardrails: non-integer period counts, zero-price current_yield
+# ---------------------------------------------------------------------------
+
+def test_price_from_yield_rejects_non_integer_period_count():
+    with pytest.raises(ValueError):
+        price_from_yield(face=1000, coupon_rate=0.05, yld=0.05, years_to_maturity=3.4, freq=2)
+
+
+def test_macaulay_duration_rejects_non_integer_period_count():
+    with pytest.raises(ValueError):
+        macaulay_duration(face=1000, coupon_rate=0.05, yld=0.05, years_to_maturity=3.4, freq=2)
+
+
+def test_convexity_rejects_non_integer_period_count():
+    with pytest.raises(ValueError):
+        convexity(face=1000, coupon_rate=0.05, yld=0.05, years_to_maturity=3.4, freq=2)
+
+
+def test_price_from_yield_accepts_period_count_within_float_tolerance():
+    # years_to_maturity computed as e.g. 7/2 can land a hair off an integer
+    # due to float arithmetic; that should still be accepted.
+    price = price_from_yield(face=1000, coupon_rate=0.05, yld=0.05, years_to_maturity=3.4999999999998, freq=2)
+    assert price == pytest.approx(1000, abs=1e-6)
+
+
+def test_current_yield_rejects_zero_price():
+    with pytest.raises(ValueError):
+        current_yield(face=1000, coupon_rate=0.05, price=0)
+
+
+def test_current_yield_rejects_negative_price():
+    with pytest.raises(ValueError):
+        current_yield(face=1000, coupon_rate=0.05, price=-10)
+
+
+# ---------------------------------------------------------------------------
+# price_from_yield_settlement / period_remaining_fraction
+# ---------------------------------------------------------------------------
+
+def test_settlement_price_matches_price_from_yield_at_period_start():
+    # w=1 (settlement right on a coupon date) with n_remaining periods
+    # should reduce exactly to the whole-period formula.
+    whole_period = price_from_yield(face=1000, coupon_rate=0.05, yld=0.06, years_to_maturity=5, freq=2)
+    settlement = price_from_yield_settlement(
+        face=1000, coupon_rate=0.05, yld=0.06, freq=2, n_remaining=10, period_remaining_fraction=1.0
+    )
+    assert settlement == pytest.approx(whole_period)
+
+
+def test_settlement_price_zero_coupon_matches_fractional_discount_factor():
+    # Zero-coupon, one remaining cash flow, halfway through the period:
+    # dirty price should be exactly face * DF(0.5 periods).
+    price = price_from_yield_settlement(
+        face=1000, coupon_rate=0.0, yld=0.06, freq=2, n_remaining=1, period_remaining_fraction=0.5
+    )
+    assert price == pytest.approx(1000 * discount_factor(0.06, 2, 0.5))
+
+
+def test_settlement_price_rejects_fraction_out_of_range():
+    with pytest.raises(ValueError):
+        price_from_yield_settlement(face=1000, coupon_rate=0.05, yld=0.05, freq=2, n_remaining=4, period_remaining_fraction=0)
+
+
+def test_period_remaining_fraction_is_one_minus_elapsed():
+    prev, settle, nxt = date(2024, 1, 1), date(2024, 4, 1), date(2024, 7, 1)
+    w = period_remaining_fraction(prev, settle, nxt, convention="30/360")
+    assert w == pytest.approx(0.5)
+
+
+def test_clean_price_from_settlement_price_and_accrued():
+    dirty = price_from_yield_settlement(
+        face=1000, coupon_rate=0.06, yld=0.06, freq=2, n_remaining=6, period_remaining_fraction=0.5
+    )
+    accrued = accrued_interest(
+        face=1000, coupon_rate=0.06, freq=2,
+        prev_coupon=date(2024, 1, 1), settlement=date(2024, 4, 1), next_coupon=date(2024, 7, 1),
+        convention="30/360",
+    )
+    clean = clean_price(dirty, accrued)
+    # At a coupon rate equal to the yield, the whole-period price is par,
+    # so the clean price at any point inside the period should also be par.
+    assert clean == pytest.approx(1000, abs=0.5)
+
+
+# ---------------------------------------------------------------------------
+# yield_to_worst
+# ---------------------------------------------------------------------------
+
+def test_yield_to_worst_picks_the_lower_of_ytm_and_ytc():
+    # A large call price close to face makes YTC roughly track YTM; a small
+    # call price well below the bond's price should make YTC the worst case.
+    price = price_from_yield(face=1000, coupon_rate=0.08, yld=0.05, years_to_maturity=10, freq=2)
+    result = yield_to_worst(
+        price=price, face=1000, coupon_rate=0.08, years_to_maturity=10,
+        call_schedule=[(3, 1010)], freq=2,
+    )
+    ytm = yield_to_maturity(price, face=1000, coupon_rate=0.08, years_to_maturity=10, freq=2)
+    ytc = yield_to_call(price, face=1000, coupon_rate=0.08, years_to_call=3, call_price=1010, freq=2)
+    assert result["yield"] == pytest.approx(min(ytm, ytc))
+    assert result["scenario"] == ("maturity" if ytm <= ytc else "call in 3y @ 1010")
+
+
+def test_yield_to_worst_falls_back_to_maturity_with_no_call_schedule():
+    price = price_from_yield(face=1000, coupon_rate=0.05, yld=0.05, years_to_maturity=10, freq=2)
+    result = yield_to_worst(price=price, face=1000, coupon_rate=0.05, years_to_maturity=10, call_schedule=[])
+    assert result["scenario"] == "maturity"
+    assert result["yield"] == pytest.approx(0.05, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# duration/convexity against numerical derivatives of price_from_yield
+# (independent of any reference table — catches a wrong formula directly)
+# ---------------------------------------------------------------------------
+
+def test_modified_duration_matches_numerical_first_derivative():
+    face, coupon_rate, yld, years = 1000, 0.05, 0.06, 10
+    h = 1e-6
+    price = price_from_yield(face, coupon_rate, yld, years)
+    numerical = (price_from_yield(face, coupon_rate, yld + h, years) - price_from_yield(face, coupon_rate, yld - h, years)) / (2 * h)
+    mod = modified_duration(macaulay_duration(face, coupon_rate, yld, years), yld)
+    assert -mod * price == pytest.approx(numerical, rel=1e-6)
+
+
+def test_convexity_matches_numerical_second_derivative():
+    face, coupon_rate, yld, years = 1000, 0.05, 0.06, 10
+    h = 1e-4
+    price = price_from_yield(face, coupon_rate, yld, years)
+    numerical = (
+        price_from_yield(face, coupon_rate, yld + h, years) - 2 * price + price_from_yield(face, coupon_rate, yld - h, years)
+    ) / h**2
+    cvx = convexity(face, coupon_rate, yld, years)
+    assert cvx * price == pytest.approx(numerical, rel=1e-4)

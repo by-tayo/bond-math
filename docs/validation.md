@@ -59,6 +59,26 @@ its time to maturity — no computation needed to see this must be true.
 checks `macaulay_duration(face=1000, coupon_rate=0.0, yld=0.05,
 years_to_maturity=7) == 7.0` to 1e-9, and it does.
 
+## Duration and convexity against numerical derivatives of price itself
+
+The strongest check for `modified_duration` and `convexity` isn't a
+reference table at all — it's comparing them to a central-difference
+derivative of `price_from_yield` with respect to yield, which is completely
+independent of the closed-form duration/convexity formulas and would catch
+a wrong formula (a sign error, a missing `1/freq` term, anything) directly.
+For the Macaulay duration bond above (face 100, 6% annual coupon, 3yr,
+yield 8%, price $94.8458):
+
+| Check | Analytic (from `modified_duration`/`convexity`) | Numerical (central difference of `price_from_yield`) | Relative difference |
+|---|---|---|---|
+| dPrice/dYield | -248.409513003 | -248.409513013 | 4×10⁻¹¹ |
+| d²Price/dYield² | 901.688888 | 901.688908 | 2×10⁻⁸ |
+
+`tests/test_bond_common.py::test_modified_duration_matches_numerical_first_derivative`
+and `::test_convexity_matches_numerical_second_derivative` run this check
+on every test run (with a different bond, to make sure it isn't specific
+to this one).
+
 ## Reproducing these numbers
 
 ```powershell
