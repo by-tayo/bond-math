@@ -466,6 +466,27 @@ def interpolate_curve(curve: pd.Series, years: float) -> float:
     return float(np.interp(years, curve.index.to_numpy(), curve.to_numpy()))
 
 
+def future_value_path_with_fees(
+    starting_amount: float,
+    annual_contribution: float,
+    gross_return: float,
+    expense_ratio: float,
+    years: int,
+) -> list[float]:
+    """Year-by-year account value (length years+1, index 0 = starting
+    amount), with a contribution added at the end of each year, net of an
+    ongoing expense ratio drag (expense_ratio is subtracted from the gross
+    return every year, the way a fund's expense ratio is deducted
+    continuously from NAV). `future_value_with_fees` is just this path's
+    last point.
+    """
+    net_return = gross_return - expense_ratio
+    path = [starting_amount]
+    for _ in range(years):
+        path.append(path[-1] * (1 + net_return) + annual_contribution)
+    return path
+
+
 def future_value_with_fees(
     starting_amount: float,
     annual_contribution: float,
@@ -473,16 +494,10 @@ def future_value_with_fees(
     expense_ratio: float,
     years: int,
 ) -> float:
-    """Ending account value after `years` of annual compounding, with a
-    contribution added at the end of each year, net of an ongoing expense
-    ratio drag (expense_ratio is subtracted from the gross return every
-    year, the way a fund's expense ratio is deducted continuously from NAV).
+    """Ending account value after `years` — see `future_value_path_with_fees`
+    for the year-by-year path.
     """
-    net_return = gross_return - expense_ratio
-    value = starting_amount
-    for _ in range(years):
-        value = value * (1 + net_return) + annual_contribution
-    return value
+    return future_value_path_with_fees(starting_amount, annual_contribution, gross_return, expense_ratio, years)[-1]
 
 
 def call_breakeven_years(price_paid: float, call_price: float, extra_annual_coupon: float) -> float | None:

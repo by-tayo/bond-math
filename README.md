@@ -48,8 +48,16 @@ interest, so the price adjusts down until the yield works out to 5%
 says the price should fall about 7.9% for a 1-point rate rise; the full
 reprice shows it actually falls 7.6% — the ~0.01pp gap between the two
 *is* convexity, the correction for the fact that the price/yield
-relationship is a curve, not a straight line (see `04_rate_shock.py` for
-this same gap widening sharply at bigger moves and longer maturities).
+relationship is a curve, not a straight line. That gap widens sharply for
+bigger moves (`04_rate_shock.py`), which is exactly what this chart shows
+(`python 08_convexity_chart.py`):
+
+![Duration estimate vs. full reprice](output/convexity_gap.png)
+
+The duration-only tangent line (red) tracks the actual price curve (black)
+closely near 0bp and visibly undershoots it out at ±300bp; the
+duration+convexity estimate (blue) tracks it almost exactly across the
+whole range.
 
 ## The Treasury curve
 
@@ -103,6 +111,7 @@ python 04_rate_shock.py        # rate shock table across maturities
 python 05_ladder_builder.py    # bond ladder priced off today's curve
 python 06_fee_drag.py          # expense ratio drag over 30 years
 python 07_call_breakeven.py    # holding period to recoup a call-risk premium
+python 08_convexity_chart.py   # duration-only vs. full-reprice price curve
 ```
 
 Run the test suite (no API key needed — it only exercises the pure math):
@@ -121,8 +130,9 @@ bond_common.py          # pricing, yield, duration, convexity, day count, FRED a
 03_plot_curve.py         # curve comparison + spread/recession charts
 04_rate_shock.py         # rate shock table, duration+convexity vs. full reprice
 05_ladder_builder.py     # bond ladder priced off today's curve
-06_fee_drag.py           # mutual fund expense ratio drag calculator
+06_fee_drag.py           # mutual fund expense ratio drag calculator + growth chart
 07_call_breakeven.py     # call-risk breakeven holding period
+08_convexity_chart.py    # duration-only vs. full-reprice price curve chart
 tests/                   # pytest suite for bond_common.py
 docs/methodology.md      # every assumption, stated
 docs/validation.md       # this tool's numbers vs. published reference answers

@@ -5,6 +5,7 @@ plus the reinvestment schedule as rungs mature. Reads data/cache/ (run
 """
 import sys
 
+import matplotlib.pyplot as plt
 import pandas as pd
 
 from bond_common import OUTPUT, curve_on_date, interpolate_curve, load_cached
@@ -31,6 +32,23 @@ def build_ladder(curve: pd.Series, total_amount: float, num_rungs: int, start_ye
             }
         )
     return pd.DataFrame(rungs)
+
+
+def plot_ladder(ladder: pd.DataFrame, as_of) -> None:
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.bar(ladder["maturity_years"].astype(str) + "y", ladder["annual_income"], color="tab:blue")
+    for x, income, yld in zip(ladder["maturity_years"].astype(str) + "y", ladder["annual_income"], ladder["yield"]):
+        ax.text(x, income, f"{yld:.2%}", ha="center", va="bottom", fontsize=9)
+    ax.set_xlabel("Rung maturity")
+    ax.set_ylabel("Annual income ($)")
+    ax.set_title(f"Ladder income by rung, as of {as_of.date()} (label = rung yield)")
+    ax.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    fig.savefig(OUTPUT / "ladder_income.png", dpi=150)
+    plt.close(fig)
+    print(f"[OK] wrote {OUTPUT / 'ladder_income.png'}")
 
 
 def main() -> int:
@@ -66,6 +84,8 @@ def main() -> int:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     ladder.to_csv(OUTPUT / "ladder.csv", index=False)
     print(f"\n[OK] wrote {OUTPUT / 'ladder.csv'}")
+
+    plot_ladder(ladder, latest_date)
     return 0
 
 

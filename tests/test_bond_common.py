@@ -15,6 +15,7 @@ from bond_common import (
     dirty_price,
     discount_factor,
     estimate_price_change_pct,
+    future_value_path_with_fees,
     future_value_with_fees,
     interpolate_curve,
     macaulay_duration,
@@ -272,6 +273,18 @@ def test_future_value_matches_hand_computed_two_years():
     # year 1: 1000*1.05 + 100 = 1150; year 2: 1150*1.05 + 100 = 1307.5
     fv = future_value_with_fees(1000, 100, gross_return=0.06, expense_ratio=0.01, years=2)
     assert fv == pytest.approx(1307.5)
+
+
+def test_future_value_path_ends_at_scalar_value():
+    path = future_value_path_with_fees(10_000, 6_000, 0.07, 0.0003, years=30)
+    assert len(path) == 31
+    assert path[0] == 10_000
+    assert path[-1] == pytest.approx(future_value_with_fees(10_000, 6_000, 0.07, 0.0003, years=30))
+
+
+def test_future_value_path_is_monotonically_increasing_for_positive_return():
+    path = future_value_path_with_fees(1000, 500, 0.07, 0.01, years=5)
+    assert all(b > a for a, b in zip(path, path[1:]))
 
 
 # ---------------------------------------------------------------------------
