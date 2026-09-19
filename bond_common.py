@@ -321,9 +321,12 @@ def load_cached(series_id: str, cache_dir: Path = DATA_CACHE) -> pd.Series:
 
 def curve_on_date(series_by_maturity: dict[str, pd.Series], as_of: pd.Timestamp) -> pd.Series:
     """Build a maturity(years) -> yield curve for one date from a dict of
-    {series_id: full history Series}, using the last observation on or
-    before `as_of` for each maturity (FRED yields aren't published on
-    weekends/holidays, so an exact-date lookup would silently drop points).
+    {series_id: full history Series} as cached from FRED (percent, e.g.
+    4.25 meaning 4.25%), using the last observation on or before `as_of`
+    for each maturity (FRED yields aren't published on weekends/holidays,
+    so an exact-date lookup would silently drop points). Returned yields
+    are decimal fractions (0.0425), matching every other `yld` in this
+    module.
     """
     points = {}
     for series_id, maturity_years in TREASURY_SERIES.items():
@@ -332,7 +335,7 @@ def curve_on_date(series_by_maturity: dict[str, pd.Series], as_of: pd.Timestamp)
         s = series_by_maturity[series_id].dropna()
         s = s[s.index <= as_of]
         if not s.empty:
-            points[maturity_years] = s.iloc[-1]
+            points[maturity_years] = s.iloc[-1] / 100
     return pd.Series(points).sort_index()
 
 
