@@ -66,7 +66,7 @@ after `python 02_fetch_curve.py`):
 
 As of 2026-09-17 the curve is **normal** (upward-sloping): 10y − 3mo =
 +0.82 percentage points. The 10y-3mo spread over the full history, with
-NBER recessions shaded, shows the standard pattern — the spread goes
+NBER recessions shaded, shows the standard pattern the spread goes
 negative (inverted) before each of the last several recessions:
 
 ![10y-3mo spread with recessions](output/spread_recessions.png)
@@ -76,7 +76,7 @@ negative (inverted) before each of the last several recessions:
 - Whether a specific bond will actually pay what it promises there's no
   credit risk model here. A junk bond and a Treasury with the same coupon
   and maturity price identically.
-- The value of a callable bond's embedded option — `yield_to_call` prices
+- The value of a callable bond's embedded option `yield_to_call` prices
   to one assumed call date, which isn't the same as a proper
   option-adjusted spread.
 - Whether a municipal bond's tax-exempt yield beats a taxable alternative
