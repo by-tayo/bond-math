@@ -1,10 +1,8 @@
 # bond-math
 
-![tests](https://github.com/by-tayo/bond-math/actions/workflows/tests.yml/badge.svg)
-
 A fixed income calculator and Treasury yield curve tool for an individual
 investor who wants to check a bond's price, yield, and interest-rate risk
-by hand — and understand exactly how each number was produced. It prices
+by hand and understand exactly how each number was produced. It prices
 bonds from a yield (and solves the reverse), computes duration and
 convexity, builds a bond ladder, and charts the Treasury curve. It
 deliberately does **not** do credit analysis, price the embedded option in
@@ -42,11 +40,11 @@ If rates rise 1% (+100bp):
 ```
 
 The bond is priced below its $1,000 face because its 4.5% coupon is below
-the 5.00% market yield — a buyer at par would be earning below-market
+the 5.00% market yield. A buyer at par would be earning below-market
 interest, so the price adjusts down until the yield works out to 5%
 (confirmed by solving YTM back from that price above). Modified duration
 says the price should fall about 7.9% for a 1-point rate rise; the full
-reprice shows it actually falls 7.6% — the ~0.01pp gap between the two
+reprice shows it actually falls 7.6%, the ~0.01pp gap between the two
 *is* convexity, the correction for the fact that the price/yield
 relationship is a curve, not a straight line. That gap widens sharply for
 bigger moves (`04_rate_shock.py`), which is exactly what this chart shows
@@ -75,15 +73,15 @@ negative (inverted) before each of the last several recessions:
 
 ## What this can't tell you
 
-- Whether a specific bond will actually pay what it promises — there's no
+- Whether a specific bond will actually pay what it promises there's no
   credit risk model here. A junk bond and a Treasury with the same coupon
   and maturity price identically.
 - The value of a callable bond's embedded option — `yield_to_call` prices
   to one assumed call date, which isn't the same as a proper
   option-adjusted spread.
 - Whether a municipal bond's tax-exempt yield beats a taxable alternative
-  for *you* — that depends on your tax bracket, which isn't modeled.
-- What your realized return will actually be — yield to maturity assumes
+  for *you* that depends on your tax bracket, which isn't modeled.
+- What your realized return will actually be yield to maturity assumes
   every coupon is reinvested at that same yield, which real reinvestment
   rates almost never hold constant to.
 
@@ -114,7 +112,7 @@ python 07_call_breakeven.py    # holding period to recoup a call-risk premium
 python 08_convexity_chart.py   # duration-only vs. full-reprice price curve
 ```
 
-Run the test suite (no API key needed — it only exercises the pure math):
+Run the test suite (no API key needed, it only exercises the pure math):
 
 ```powershell
 pytest tests/
